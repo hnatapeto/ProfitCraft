@@ -113,7 +113,7 @@ local function Collect(parts, mult, depth, buy, craft)
         if p.from == "craft" and p.sub then
             local c = q / (p.subQty or 1)
             local k = craft[p.id]
-            if not k then k = { n = 0, depth = 0, prof = p.prof, subQty = p.subQty or 1 }; craft[p.id] = k end
+            if not k then k = { n = 0, depth = 0, prof = p.prof, subQty = p.subQty or 1, rid = p.rid }; craft[p.id] = k end
             k.n = k.n + c
             if depth > k.depth then k.depth = depth end
             Collect(p.sub, c, depth + 1, buy, craft)
@@ -184,6 +184,24 @@ local function BuildPlanText(e, count)
     end
     add(" ")
     add(("|cffffd100Odhadovany zisk: %s|r"):format(ns.Money(e.profit and e.profit * count)))
+
+    -- cas craftenia (dlzky craftov zbiera casovac)
+    local ct = PC.db.castTime or {}
+    local secs, unknown = 0, 0
+    for _, x in ipairs(clist) do
+        local t = x.c.rid and ct[x.c.rid]
+        if t then secs = secs + t * math.ceil(x.c.n - 0.001) else unknown = unknown + 1 end
+    end
+    if ct[e.rid] then secs = secs + ct[e.rid] * count else unknown = unknown + 1 end
+    local fmtT = ns.FormatTime or function(v) return math.floor(v) .. "s" end
+    if unknown == 0 and secs > 0 then
+        local gph = e.profit and (e.profit * count / secs * 3600)
+        add(("|cffffd100Cas craftenia: %s  |  %s/hod|r"):format(fmtT(secs), ns.Money(gph)))
+    elseif secs > 0 then
+        add(("|cff888888Cas craftenia: aspon %s (%d recept(y) este nemam zmerane)|r"):format(fmtT(secs), unknown))
+    else
+        add("|cff888888Cas craftenia: zatial nezmerany - vycraftuj to raz a casovac si ho zapamata.|r")
+    end
     if not e.chain then
         add(" ")
         add("|cff888888Bez retazca - vsetky suroviny sa oplati kupit.|r")

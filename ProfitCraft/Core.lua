@@ -24,6 +24,8 @@ local defaults = {
     useAlts   = false,       -- zaratat aj recepty altov na tom istom realme
     chars     = {},
     vendor    = {},          -- itemID -> nakupna cena u vendora (za kus)
+    castTime  = {},          -- recipeID -> dlzka craftu v sekundach (zbiera Timer)
+    timer     = {},          -- pozicia/zamknutie okna casovaca
 }
 
 local function Print(msg) print("|cff33ff99ProfitCraft|r: " .. tostring(msg)) end
@@ -272,7 +274,7 @@ function PC:RecipeCost(rec, visiting)
             cost = cost + best.unit * rg.qty
             parts[#parts + 1] = {
                 id = rg.id, qty = rg.qty, unit = best.unit, from = best.from,
-                sub = best.sub, prof = best.prof, subQty = best.subQty,
+                sub = best.sub, prof = best.prof, subQty = best.subQty, rid = best.rid,
             }
         end
     end
@@ -304,7 +306,7 @@ function PC:BestCost(id, visiting)
                     local q = AvgQty(rec.r)
                     local unit = c / q
                     if not best or unit < best.unit then
-                        best = { unit = unit, from = "craft", sub = parts, prof = rec.prof, subQty = q }
+                        best = { unit = unit, from = "craft", sub = parts, prof = rec.prof, subQty = q, rid = rec.rid }
                     end
                 end
             end
@@ -459,6 +461,8 @@ SlashCmdList.PROFITCRAFT = function(msg)
         PrintTop(db.mode, tonumber(arg) or 10)
     elseif cmd == "vendor" then
         PrintTop("vendor", tonumber(arg) or 10)
+    elseif cmd == "timer" or cmd == "ct" then
+        if ns.TimerCmd then ns.TimerCmd(arg) end
     elseif cmd == "why" or cmd == "preco" then
         PC:Why(arg)
     elseif cmd == "mode" and (arg == "ah" or arg == "vendor") then
@@ -495,6 +499,7 @@ SlashCmdList.PROFITCRAFT = function(msg)
         print("  /pc source auto|tsm|auctioneer|auctionator")
         print("  /pc tsmbuy <price string> | /pc tsmsell <price string>")
         print("  /pc cut <percent> | /pc min <goldy> | /pc status | /pc reset")
+        print("  /pc timer test|lock|unlock|reset  (alebo /ct ...)")
     end
 end
 
