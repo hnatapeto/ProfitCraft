@@ -1,0 +1,10 @@
+## Interface: 16001, 120105
+## Title: ProfitCraft
+## Notes: Hlada vyhodne crafty podla cien z TSM / Auctioneer / Auctionator
+## Author: Peto
+## Version: 0.3.0
+## SavedVariables: ProfitCraftDB
+## OptionalDeps: TradeSkillMaster, Auc-Advanced, Auctionator
+
+Core.lua
+UI.lua
