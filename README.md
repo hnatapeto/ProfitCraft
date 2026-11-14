@@ -12,7 +12,9 @@ Addon pre **World of Warcraft: Forever**, ktorý hľadá výhodné crafty podľa
   - **AH → craft → vendor** (kúpiš suroviny v aukcii, výrobok predáš vendorovi)
 - **Reťazce:** každú surovinu berie najlacnejšie z AH, od vendora alebo z vlastného craftu,
   aj cez viac krokov (napr. bar → diel → výrobok).
-- **Plán:** klik na riadok ukáže, čo kúpiť, čo vyrobiť a v akom poradí (x1 / x5 / x10 / x20).
+- **Plán:** klik na riadok ukáže, čo kúpiť, čo vyrobiť a v akom poradí (x1 / x5 / x10 / x20),
+  aj celkový čas craftenia a zisk za hodinu.
+- **Časovač craftu** (bývalý CraftTimer): odpočítava zostávajúci čas dávky a ukazuje odhadovaný zisk.
 
 ## Inštalácia
 
@@ -39,9 +41,12 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 | `/pc cut <percent>` | poplatok AH |
 | `/pc min <goldy>` | minimálny zisk |
 | `/pc status` / `/pc reset` | stav / vymazať recepty postavy |
+| `/ct test\|lock\|unlock\|reset` | časovač craftu (aj `/pc timer ...`) |
 
 ## Poznámky
 
 - Ceny sú také čerstvé, aký je posledný sken tvojho AH addonu.
 - Neráta s hĺbkou trhu (či sa daný počet kusov reálne predá).
 - Enchanty bez výsledného itemu sa preskakujú.
+- Ak máš ešte samostatný addon CraftTimer, vypni ho alebo zmaž, časovač je už súčasťou ProfitCraftu.
+- Známy problém (0.4.0): dĺžka craftu, a teda čas a zisk za hodinu v časovači, môže byť vo Forever nepresná.
