@@ -22,6 +22,7 @@ local defaults = {
     mode      = "ah",        -- ah | vendor | de
     chains    = true,        -- pouzivat vlastne crafty ako suroviny
     useAlts   = false,       -- zaratat aj recepty altov na tom istom realme
+    learned   = true,        -- zobrazit naucene recepty
     unlearned = true,        -- zobrazit aj recepty, ktore este nemas naucene
     chars     = {},
     vendor    = {},          -- itemID -> nakupna cena u vendora (za kus)
@@ -512,7 +513,7 @@ function PC:Top(mode, limit)
     local all, incomplete = self:Evaluate()
     local list = {}
     for _, e in ipairs(all) do
-        if e[key] and e[key] >= (self.db.minProfit or 0) and (e.learned or self.db.unlearned) then
+        if e[key] and e[key] >= (self.db.minProfit or 0) and (e.learned and self.db.learned or not e.learned and self.db.unlearned) then
             e.profit = e[key]
             list[#list + 1] = e
         end
@@ -643,6 +644,9 @@ SlashCmdList.PROFITCRAFT = function(msg)
         db.chains = OnOff(arg, db.chains); Print("Retazce: " .. (db.chains and "zapnute" or "vypnute")); R()
     elseif cmd == "alts" then
         db.useAlts = OnOff(arg, db.useAlts); Print("Recepty altov: " .. (db.useAlts and "zapnute" or "vypnute")); R()
+    elseif cmd == "learned" or cmd == "naucene" then
+        db.learned = OnOff(arg, db.learned)
+        Print("Naucene recepty: " .. (db.learned and "zobrazene" or "skryte")); R()
     elseif cmd == "unlearned" or cmd == "nenaucene" then
         db.unlearned = OnOff(arg, db.unlearned)
         Print("Nenaucene recepty: " .. (db.unlearned and "zobrazene" or "skryte")); R()
@@ -660,9 +664,9 @@ SlashCmdList.PROFITCRAFT = function(msg)
         PC.char.profs = {}; Print("Recepty tejto postavy vymazane. Otvor znova okna profesii.")
     elseif cmd == "status" then
         Print("Zdroje cien: " .. PC:ActiveSourceNames() .. " | zvoleny: " .. db.source)
-        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s | nenaucene: %s"):format(
+        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s | naucene: %s | nenaucene: %s"):format(
             db.tsmBuy, db.tsmSell, db.chains and "on" or "off", db.useAlts and "on" or "off",
-            db.unlearned and "on" or "off"))
+            db.learned and "on" or "off", db.unlearned and "on" or "off"))
         for prof, rec in pairs(PC.char.profs) do
             local n, l = 0, 0
             for _, r in pairs(rec) do n = n + 1; if r.learned ~= false then l = l + 1 end end
@@ -672,7 +676,8 @@ SlashCmdList.PROFITCRAFT = function(msg)
         Print("Prikazy:")
         print("  /pc - okno | /pc top [n] | /pc vendor [n] | /pc de [n]")
         print("  /pc why <nazov itemu alebo shift-klik link> - preco craft nie je v zozname")
-        print("  /pc mode ah|vendor|de | /pc chains on|off | /pc alts on|off | /pc unlearned on|off")
+        print("  /pc mode ah|vendor|de | /pc chains on|off | /pc alts on|off ")
+        print("  /pc learned on|off | /pc unlearned on|off - naucene / nenaucene recepty")
         print("  /pc source auto|tsm|auctioneer|auctionator")
         print("  /pc tsmbuy <price string> | /pc tsmsell <price string>")
         print("  /pc cut <percent> | /pc min <goldy> | /pc status | /pc reset")

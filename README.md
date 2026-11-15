@@ -38,7 +38,7 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 | `/pc mode ah\|vendor\|de` | režim |
 | `/pc chains on\|off` | reťazce cez vlastné crafty |
 | `/pc alts on\|off` | zarátať recepty altov na rovnakom realme |
-| `/pc unlearned on\|off` | zobraziť aj nenaučené recepty (default zapnuté) |
+| `/pc learned on\|off` / `/pc unlearned on\|off` | zobraziť naučené / nenaučené recepty (aj checkboxy v okne) |
 | `/pc source auto\|tsm\|auctioneer\|auctionator` | zdroj cien |
 | `/pc tsmbuy <price>` / `/pc tsmsell <price>` | TSM price string (default `first(dbminbuyout, dbmarket)`) |
 | `/pc cut <percent>` | poplatok AH |

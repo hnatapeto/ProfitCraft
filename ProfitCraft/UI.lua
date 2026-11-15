@@ -5,12 +5,12 @@ local GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local GetIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
 
 local ROW_H, NUM_LIMIT = 22, 200
-local f, scroll, content, statusText, modeBtns
+local f, scroll, content, statusText, modeBtns, checks
 local rows = {}
 
 local function CreateMain()
     f = CreateFrame("Frame", "ProfitCraftFrame", UIParent, "BasicFrameTemplateWithInset")
-    f:SetSize(680, 460)
+    f:SetSize(680, 484)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -44,10 +44,29 @@ local function CreateMain()
     refresh:SetText("Obnovit")
     refresh:SetScript("OnClick", function() ns.RefreshUI() end)
 
+    -- filtre: naucene / nenaucene recepty
+    checks = {}
+    local function MakeCheck(label, key, x)
+        local cb = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        cb:SetSize(24, 24)
+        cb:SetPoint("TOPLEFT", x, -54)
+        local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+        fs:SetText(label)
+        cb:SetHitRectInsets(0, -(fs:GetStringWidth() + 4), 0, 0)
+        cb:SetScript("OnClick", function(self)
+            PC.db[key] = self:GetChecked() and true or false
+            ns.RefreshUI()
+        end)
+        checks[key] = cb
+    end
+    MakeCheck("Naucene recepty", "learned", 12)
+    MakeCheck("|cffff8000Nenaucene|r recepty", "unlearned", 160)
+
     -- hlavicka
     local hdr = CreateFrame("Frame", nil, f)
-    hdr:SetPoint("TOPLEFT", 14, -58)
-    hdr:SetPoint("TOPRIGHT", -34, -58)
+    hdr:SetPoint("TOPLEFT", 14, -82)
+    hdr:SetPoint("TOPRIGHT", -34, -82)
     hdr:SetHeight(16)
     local function H(text, x, w, j)
         local fs = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -60,7 +79,7 @@ local function CreateMain()
     H("Zisk", 544, 86, "RIGHT")
 
     scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 12, -76)
+    scroll:SetPoint("TOPLEFT", 12, -100)
     scroll:SetPoint("BOTTOMRIGHT", -32, 32)
     content = CreateFrame("Frame", nil, scroll)
     content:SetSize(630, 1)
@@ -272,7 +291,7 @@ end
 
 local function CreatePlan()
     plan = CreateFrame("Frame", "ProfitCraftPlan", f, "BasicFrameTemplateWithInset")
-    plan:SetSize(400, 460)
+    plan:SetSize(400, 484)
     plan:SetPoint("TOPLEFT", f, "TOPRIGHT", 2, 0)
     plan.title = plan:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     plan.title:SetPoint("TOP", 0, -5)
@@ -576,6 +595,7 @@ function ns.RefreshUI()
     for m, b in pairs(modeBtns) do
         if m == mode then b:LockHighlight() else b:UnlockHighlight() end
     end
+    for key, cb in pairs(checks) do cb:SetChecked(PC.db[key] and true or false) end
 
     local list, incomplete = PC:Top(mode, NUM_LIMIT)
     for i, e in ipairs(list) do
