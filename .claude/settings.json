@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash(codex exec --sandbox read-only:*)",
+      "Bash(luacheck:*)",
+      "Bash(luac:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout -b:*)",
+      "WebFetch(domain:warcraft.wiki.gg)",
+      "WebFetch(domain:www.wowhead.com)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(codex exec:*)",
+      "Bash(gh pr:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(codex exec --dangerously-bypass-approvals-and-sandbox:*)"
+    ]
+  }
+}

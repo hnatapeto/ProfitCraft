@@ -2,10 +2,13 @@
 ## Title: ProfitCraft
 ## Notes: Hlada vyhodne crafty (TSM / Auctioneer / Auctionator) a odpocitava cas craftenia
 ## Author: Peto
-## Version: 0.4.0
+## Version: 0.7.0
+## IconTexture: Interface\Icons\INV_Misc_Coin_01
+## AddonCompartmentFunc: ProfitCraft_OnAddonCompartmentClick
 ## SavedVariables: ProfitCraftDB
 ## OptionalDeps: TradeSkillMaster, Auc-Advanced, Auctionator
 
 Core.lua
 UI.lua
 Timer.lua
+Minimap.lua

@@ -106,21 +106,36 @@ end
 -- Plan: nakupny zoznam + poradie craftov
 ---------------------------------------------------------------------------
 local plan, planEntry, planCount = nil, nil, 1
+local lastShop = {}
 
-local function Collect(parts, mult, depth, buy, craft)
+-- rozpis surovin; ak je stock (tabulka itemID -> volne kusy), najprv sa beru vlastne zasoby
+-- na kazdom stupni retazca a craftuje/kupuje sa len zvysok
+local function Collect(parts, mult, depth, buy, craft, stock, used)
     for _, p in ipairs(parts) do
         local q = p.qty * mult
-        if p.from == "craft" and p.sub then
-            local c = q / (p.subQty or 1)
-            local k = craft[p.id]
-            if not k then k = { n = 0, depth = 0, prof = p.prof, subQty = p.subQty or 1, rid = p.rid }; craft[p.id] = k end
-            k.n = k.n + c
-            if depth > k.depth then k.depth = depth end
-            Collect(p.sub, c, depth + 1, buy, craft)
-        else
-            local b = buy[p.id]
-            if not b then b = { n = 0, unit = p.unit, from = p.from }; buy[p.id] = b end
-            b.n = b.n + q
+        if stock then
+            local have = stock[p.id]
+            if have == nil then have = PC:Owned(p.id); stock[p.id] = have end
+            local take = math.min(have, q)
+            if take > 0 then
+                stock[p.id] = have - take
+                used[p.id] = (used[p.id] or 0) + take
+                q = q - take
+            end
+        end
+        if q > 0.0001 then
+            if p.from == "craft" and p.sub then
+                local c = q / (p.subQty or 1)
+                local k = craft[p.id]
+                if not k then k = { n = 0, depth = 0, prof = p.prof, subQty = p.subQty or 1, rid = p.rid }; craft[p.id] = k end
+                k.n = k.n + c
+                if depth > k.depth then k.depth = depth end
+                Collect(p.sub, c, depth + 1, buy, craft, stock, used)
+            else
+                local b = buy[p.id]
+                if not b then b = { n = 0, unit = p.unit, from = p.from }; buy[p.id] = b end
+                b.n = b.n + q
+            end
         end
     end
 end
@@ -132,14 +147,33 @@ end
 
 local function BuildPlanText(e, count)
     local mode = PC.db.mode
-    local buy, craft = {}, {}
-    Collect(e.parts, count, 1, buy, craft)
+    local buy, craft, used = {}, {}, {}
+    local useStock = PC.db.useStock ~= false
+    Collect(e.parts, count, 1, buy, craft, useStock and {} or nil, used)
     local L = {}
     local function add(s) L[#L + 1] = s end
 
     add(("|cffffd100%dx craft:|r %s"):format(count, Name(e.out)))
     add(("|cff888888%s, vyrobis cca %s ks|r"):format(e.prof, math.floor(e.qty * count + 0.5)))
+    if not useStock then add("|cff888888Zasoby sa nerataju (vypnute).|r") end
     add(" ")
+
+    -- vlastne zasoby
+    local ulist = {}
+    for id, n in pairs(used) do ulist[#ulist + 1] = { id = id, n = n } end
+    if #ulist > 0 then
+        table.sort(ulist, function(a, b) return a.id < b.id end)
+        add("|cff33ff990) POUZIJES ZO ZASOB|r |cff888888(tasky, banka, posta)|r")
+        local saved = 0
+        for _, x in ipairs(ulist) do
+            local n = math.floor(x.n + 0.5)
+            local best = PC:CostOf(x.id)
+            if best then saved = saved + best * x.n end
+            add(("   %dx %s  |cff888888(mas %d)|r"):format(n, Name(x.id), PC:Owned(x.id)))
+        end
+        if saved > 0 then add(("   |cff888888Hodnota pouzitych zasob: %s|r"):format(ns.Money(saved))) end
+        add(" ")
+    end
 
     -- nakup
     add("|cff33ff991) KUPIT|r")
@@ -147,12 +181,18 @@ local function BuildPlanText(e, count)
     for id, b in pairs(buy) do blist[#blist + 1] = { id = id, b = b } end
     table.sort(blist, function(a, b) return a.b.from == b.b.from and a.id < b.id or a.b.from < b.b.from end)
     local total = 0
+    local shop = {}
     for _, x in ipairs(blist) do
         local n = math.ceil(x.b.n - 0.001)
-        total = total + n * x.b.unit
-        local where = x.b.from == "vendor" and "|cffffff00vendor|r" or "|cff66ccffAH|r"
-        add(("   %dx %s  %s/ks = %s  (%s)"):format(n, Name(x.id), ns.Money(x.b.unit), ns.Money(n * x.b.unit), where))
+        if n > 0 then
+            total = total + n * x.b.unit
+            local where = x.b.from == "vendor" and "|cffffff00vendor|r" or "|cff66ccffAH|r"
+            add(("   %dx %s  %s/ks = %s  (%s)"):format(n, Name(x.id), ns.Money(x.b.unit), ns.Money(n * x.b.unit), where))
+            shop[#shop + 1] = { id = x.id, need = n, owned = 0, from = x.b.from }
+        end
     end
+    if #shop == 0 then add("   |cff33ff99Nic - vsetko mas.|r") end
+    lastShop = shop
     add(("   |cffffd100Spolu nakup: %s|r"):format(ns.Money(total)))
     add(" ")
 
@@ -183,7 +223,7 @@ local function BuildPlanText(e, count)
         add(("   po %d%% poplatku: %s"):format(PC.db.ahCut, ns.Money(e.ahUnit and e.ahUnit * e.qty * count * (1 - PC.db.ahCut / 100))))
     end
     add(" ")
-    add(("|cffffd100Odhadovany zisk: %s|r"):format(ns.Money(e.profit and e.profit * count)))
+    add(("|cffffd100Odhadovany zisk: %s|r |cff888888(pri trhovych cenach surovin)|r"):format(ns.Money(e.profit and e.profit * count)))
 
     -- cas craftenia (dlzky craftov zbiera casovac)
     local ct = PC.db.castTime or {}
@@ -217,16 +257,88 @@ local function CreatePlan()
     plan.title:SetPoint("TOP", 0, -5)
     plan.title:SetText("Plan")
 
-    local x = 12
-    for _, n in ipairs({ 1, 5, 10, 20 }) do
-        local b = CreateFrame("Button", nil, plan, "UIPanelButtonTemplate")
-        b:SetSize(50, 22); b:SetPoint("TOPLEFT", x, -30); b:SetText("x" .. n)
-        b:SetScript("OnClick", function() planCount = n; ns.ShowPlan(planEntry) end)
-        x = x + 54
+    -- pole na pocet craftov + potvrdenie (Enter alebo OK)
+    local lbl = plan:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    lbl:SetPoint("TOPLEFT", 14, -35)
+    lbl:SetText("Pocet craftov:")
+
+    local eb = CreateFrame("EditBox", nil, plan, "InputBoxTemplate")
+    eb:SetSize(70, 22)
+    eb:SetPoint("LEFT", lbl, "RIGHT", 12, 0)
+    eb:SetAutoFocus(false)
+    eb:SetNumeric(true)
+    eb:SetMaxLetters(5)
+    eb:SetText(tostring(planCount))
+    plan.countBox = eb
+
+    local function Confirm()
+        local n = tonumber(eb:GetText())
+        if not n or n < 1 then n = 1 end
+        planCount = math.floor(n)
+        eb:SetText(tostring(planCount))
+        eb:ClearFocus()
+        ns.ShowPlan(planEntry)
     end
+    eb:SetScript("OnEnterPressed", Confirm)
+    eb:SetScript("OnEscapePressed", function(self) self:SetText(tostring(planCount)); self:ClearFocus() end)
+
+    local ok = CreateFrame("Button", nil, plan, "UIPanelButtonTemplate")
+    ok:SetSize(60, 22)
+    ok:SetPoint("LEFT", eb, "RIGHT", 8, 0)
+    ok:SetText("OK")
+    ok:SetScript("OnClick", Confirm)
+
+    local tsm = CreateFrame("Button", nil, plan, "UIPanelButtonTemplate")
+    tsm:SetSize(120, 22)
+    tsm:SetPoint("TOPLEFT", 12, -58)
+    tsm:SetText("TSM string")
+    tsm:SetScript("OnClick", function() ns.ShowTSMString() end)
+    tsm:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("TSM nakupny string")
+        GameTooltip:AddLine("Suroviny z AH na tento pocet craftov,", 1, 1, 1)
+        GameTooltip:AddLine("bez toho, co uz mas v taskach a banke.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    tsm:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local atr = CreateFrame("Button", nil, plan, "UIPanelButtonTemplate")
+    atr:SetSize(150, 22)
+    atr:SetPoint("LEFT", tsm, "RIGHT", 8, 0)
+    atr:SetText("Auctionator zoznam")
+    atr:SetScript("OnClick", function() ns.ShowAuctionatorList() end)
+    atr:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Auctionator nakupny zoznam")
+        GameTooltip:AddLine("Vytvori zoznam priamo v Auctionatore", 1, 1, 1)
+        GameTooltip:AddLine("(Shopping) a ukaze aj string na import.", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    atr:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local cb = CreateFrame("CheckButton", nil, plan, "UICheckButtonTemplate")
+    cb:SetSize(24, 24)
+    cb:SetPoint("LEFT", atr, "RIGHT", 6, 0)
+    cb:SetChecked(PC.db.useStock ~= false)
+    cb.label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cb.label:SetPoint("LEFT", cb, "RIGHT", 0, 1)
+    cb.label:SetText("Zasoby")
+    cb:SetScript("OnClick", function(self)
+        PC.db.useStock = self:GetChecked() and true or false
+        ns.ShowPlan(planEntry)
+    end)
+    cb:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Pocitat s mojimi zasobami")
+        GameTooltip:AddLine("Najprv sa pouziju itemy z tasiek, banky a posty,", 1, 1, 1)
+        GameTooltip:AddLine("craftuje a kupuje sa len zvysok.", 1, 1, 1)
+        GameTooltip:AddLine("Alty: /pc altstock on", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local sf = CreateFrame("ScrollFrame", nil, plan, "UIPanelScrollFrameTemplate")
-    sf:SetPoint("TOPLEFT", 12, -60)
+    sf:SetPoint("TOPLEFT", 12, -88)
     sf:SetPoint("BOTTOMRIGHT", -32, 12)
     local child = CreateFrame("Frame", nil, sf)
     child:SetSize(350, 1)
@@ -239,10 +351,163 @@ local function CreatePlan()
     plan.child = child
 end
 
+---------------------------------------------------------------------------
+-- TSM nakupny string:  i:ID/xPOCET;i:ID/xPOCET
+---------------------------------------------------------------------------
+local tsmPopup
+
+local function CreateTSMPopup()
+    local p = CreateFrame("Frame", "ProfitCraftTSMString", UIParent, "BasicFrameTemplateWithInset")
+    p:SetSize(480, 230)
+    p:SetPoint("CENTER", 0, 120)
+    p:SetFrameStrata("DIALOG")
+    p:SetMovable(true)
+    p:EnableMouse(true)
+    p:RegisterForDrag("LeftButton")
+    p:SetScript("OnDragStart", p.StartMoving)
+    p:SetScript("OnDragStop", p.StopMovingOrSizing)
+    tinsert(UISpecialFrames, "ProfitCraftTSMString")
+
+    p.title = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    p.title:SetPoint("TOP", 0, -5)
+    p.title:SetText("Nakupny string")
+
+    p.info = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    p.info:SetPoint("TOPLEFT", 14, -32)
+    p.info:SetPoint("TOPRIGHT", -14, -32)
+    p.info:SetJustifyH("LEFT")
+
+    local sf = CreateFrame("ScrollFrame", nil, p, "UIPanelScrollFrameTemplate")
+    sf:SetPoint("TOPLEFT", 14, -62)
+    sf:SetPoint("BOTTOMRIGHT", -34, 40)
+    local eb = CreateFrame("EditBox", nil, sf)
+    eb:SetMultiLine(true)
+    eb:SetFontObject(ChatFontNormal)
+    eb:SetWidth(420)
+    eb:SetAutoFocus(false)
+    eb:SetScript("OnEscapePressed", function() p:Hide() end)
+    -- len na citanie: kazda zmena sa vrati spat
+    eb:SetScript("OnTextChanged", function(self, userInput)
+        if userInput then self:SetText(self.orig or ""); self:HighlightText() end
+    end)
+    eb:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    eb:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+    sf:SetScrollChild(eb)
+    p.eb = eb
+
+    p.hint = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    p.hint:SetPoint("BOTTOMLEFT", 14, 14)
+    p.hint:SetText("Ctrl+C skopiruje  |  Esc zavrie")
+
+    local close = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+    close:SetSize(80, 22)
+    close:SetPoint("BOTTOMRIGHT", -12, 10)
+    close:SetText("Zavriet")
+    close:SetScript("OnClick", function() p:Hide() end)
+
+    tsmPopup = p
+end
+
+-- suroviny na kupu z AH (odratane zasoby); vrati list {id, n}, skipped, vendorItems
+local function ShopList()
+    local list, skipped, vendorItems = {}, 0, 0
+    for _, x in ipairs(lastShop or {}) do
+        if x.from == "vendor" then
+            vendorItems = vendorItems + 1
+        else
+            local n = x.need - (x.owned or 0)
+            if n > 0 then list[#list + 1] = { id = x.id, n = n } else skipped = skipped + 1 end
+        end
+    end
+    return list, skipped, vendorItems
+end
+
+local function OpenPopup(title, str, info)
+    if not tsmPopup then CreateTSMPopup() end
+    tsmPopup.title:SetText(title)
+    tsmPopup.info:SetText(info)
+    tsmPopup.eb.orig = str
+    tsmPopup.eb:SetText(str)
+    tsmPopup:Show()
+    tsmPopup.eb:SetFocus()
+    tsmPopup.eb:HighlightText()
+end
+
+local function BaseInfo(count, skipped, vendorItems)
+    local info = ("Pocet craftov: %d  |  itemov na kupu: %d"):format(planCount, count)
+    if skipped > 0 then info = info .. ("  |  uz mas: %d"):format(skipped) end
+    if vendorItems > 0 then info = info .. ("\n|cffffff00%d surovin(y) kup u vendora, v zozname nie su.|r"):format(vendorItems) end
+    return info
+end
+
+-- TSM:  i:ID/xPOCET;i:ID/xPOCET
+function ns.ShowTSMString()
+    local list, skipped, vendorItems = ShopList()
+    local parts = {}
+    for _, x in ipairs(list) do parts[#parts + 1] = ("i:%d/x%d"):format(x.id, x.n) end
+    local info = BaseInfo(#parts, skipped, vendorItems)
+    if #parts == 0 then info = info .. "\n|cff33ff99Vsetko potrebne uz mas - netreba nic kupovat.|r" end
+    OpenPopup("TSM nakupny string", table.concat(parts, ";"), info)
+end
+
+-- Auctionator:  Nazov zoznamu^"Item";;;;;;;;;;;;;POCET^...
+-- (14 poli oddelenych ";" - nazov v uvodzovkach = presne vyhladavanie, posledne pole = mnozstvo)
+local function AtrSearchString(name, n)
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    if api and api.ConvertToSearchString then
+        local ok, str = pcall(api.ConvertToSearchString, ADDON,
+            { searchString = name, isExact = true, categoryKey = "", quantity = n })
+        if ok and type(str) == "string" then return str end
+    end
+    return ('"%s";;;;;;;;;;;;;%d'):format(name, n)
+end
+
+function ns.ShowAuctionatorList()
+    local list, skipped, vendorItems = ShopList()
+    local outName = planEntry and (GetItemInfo(planEntry.out) or planEntry.name) or "craft"
+    local listName = ("ProfitCraft - %s x%d"):format(outName, planCount)
+
+    local strings, missing = {}, 0
+    for _, x in ipairs(list) do
+        local name = GetItemInfo(x.id)
+        if name then
+            strings[#strings + 1] = AtrSearchString(name, x.n)
+        else
+            missing = missing + 1
+            if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(x.id) end
+        end
+    end
+
+    local info = BaseInfo(#strings, skipped, vendorItems)
+    if missing > 0 then
+        info = info .. ("\n|cffff4040%d item(y) este nie su nacitane - klikni znova o chvilu.|r"):format(missing)
+    end
+
+    -- priamo vytvorit zoznam v Auctionatore
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    if #strings > 0 and api and api.CreateShoppingList then
+        local ok, err = pcall(api.CreateShoppingList, ADDON, listName, strings)
+        if ok then
+            info = info .. ("\n|cff33ff99Zoznam '%s' je vytvoreny v Auctionatore (Shopping).|r"):format(listName)
+        else
+            info = info .. "\n|cffff4040Vytvorenie zoznamu zlyhalo - pouzi import stringu.|r"
+            ns.Print("Auctionator chyba: " .. tostring(err))
+        end
+    elseif #strings > 0 then
+        info = info .. "\n|cffffff00Auctionator nie je zapnuty - string vloz cez Shopping -> Import.|r"
+    else
+        info = info .. "\n|cff33ff99Vsetko potrebne uz mas - netreba nic kupovat.|r"
+    end
+
+    local str = #strings > 0 and (listName .. "^" .. table.concat(strings, "^")) or ""
+    OpenPopup("Auctionator nakupny zoznam", str, info)
+end
+
 function ns.ShowPlan(e)
     if not e then return end
     if not plan then CreatePlan() end
     planEntry = e
+    if plan.countBox and not plan.countBox:HasFocus() then plan.countBox:SetText(tostring(planCount)) end
     plan.text:SetText(BuildPlanText(e, planCount))
     plan.child:SetHeight(plan.text:GetStringHeight() + 10)
     plan:Show()

@@ -28,7 +28,7 @@ local function TDB() return PC.db and PC.db.timer or {} end
 ------------------------------------------------------------
 -- UI
 ------------------------------------------------------------
-f:SetSize(260, 62)
+f:SetSize(290, 62)
 f:SetFrameStrata("MEDIUM")
 f:SetClampedToScreen(true)
 f:SetMovable(true)

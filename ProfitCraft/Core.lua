@@ -26,6 +26,9 @@ local defaults = {
     vendor    = {},          -- itemID -> nakupna cena u vendora (za kus)
     castTime  = {},          -- recipeID -> dlzka craftu v sekundach (zbiera Timer)
     timer     = {},          -- pozicia/zamknutie okna casovaca
+    minimap   = {},          -- ikona pri minimape (angle, hide)
+    useStock  = true,        -- plan: najprv pouzit vlastne zasoby
+    useAltStock = false,     -- plan: zaratat aj zasoby altov (cez TSM)
 }
 
 local function Print(msg) print("|cff33ff99ProfitCraft|r: " .. tostring(msg)) end
@@ -136,6 +139,48 @@ function PC:VendorSell(id)
         return nil
     end
     return sell
+end
+
+---------------------------------------------------------------------------
+-- Vlastne zasoby: tasky + banka + posta (cez TSM, inak vlastny sken posty)
+---------------------------------------------------------------------------
+local GetCount = (C_Item and C_Item.GetItemCount) or GetItemCount
+
+function PC:Owned(id)
+    if TSM_API and TSM_API.GetPlayerTotals then
+        local ok, player, alts = pcall(TSM_API.GetPlayerTotals, "i:" .. id)
+        if ok and type(player) == "number" then
+            local n = player
+            if self.db.useAltStock and type(alts) == "number" then n = n + alts end
+            return n
+        end
+    end
+    local n = 0
+    if GetCount then
+        local ok, c = pcall(GetCount, id, true, false, true, true)
+        if ok and c then n = c end
+    end
+    local mail = self.char and self.char.mail
+    if mail and mail[id] then n = n + mail[id] end
+    return n
+end
+
+-- najlacnejsia cena 1 kusu (pre hodnotu pouzitych zasob)
+function PC:CostOf(id)
+    return self:VendorBuy(id) or self:AHPrice(id, "buy")
+end
+
+function PC:ScanMail()
+    if not GetInboxNumItems then return end
+    local mail = {}
+    local maxAtt = ATTACHMENTS_MAX_RECEIVE or 16
+    for i = 1, GetInboxNumItems() do
+        for j = 1, maxAtt do
+            local name, itemID, _, count = GetInboxItem(i, j)
+            if name and itemID then mail[itemID] = (mail[itemID] or 0) + (count or 1) end
+        end
+    end
+    self.char.mail = mail
 end
 
 ---------------------------------------------------------------------------
@@ -461,6 +506,12 @@ SlashCmdList.PROFITCRAFT = function(msg)
         PrintTop(db.mode, tonumber(arg) or 10)
     elseif cmd == "vendor" then
         PrintTop("vendor", tonumber(arg) or 10)
+    elseif cmd == "stock" or cmd == "zasoby" then
+        db.useStock = OnOff(arg, db.useStock ~= false); Print("Plan pocita so zasobami: " .. (db.useStock and "ano" or "nie")); R()
+    elseif cmd == "altstock" then
+        db.useAltStock = OnOff(arg, db.useAltStock); Print("Zasoby altov (TSM): " .. (db.useAltStock and "ano" or "nie")); R()
+    elseif cmd == "minimap" or cmd == "ikona" then
+        if ns.ToggleMinimap then ns.ToggleMinimap(arg) end
     elseif cmd == "timer" or cmd == "ct" then
         if ns.TimerCmd then ns.TimerCmd(arg) end
     elseif cmd == "why" or cmd == "preco" then
@@ -500,6 +551,8 @@ SlashCmdList.PROFITCRAFT = function(msg)
         print("  /pc tsmbuy <price string> | /pc tsmsell <price string>")
         print("  /pc cut <percent> | /pc min <goldy> | /pc status | /pc reset")
         print("  /pc timer test|lock|unlock|reset  (alebo /ct ...)")
+        print("  /pc minimap [on|off] - ikona pri minimape")
+        print("  /pc zasoby on|off | /pc altstock on|off - plan s vlastnymi zasobami")
     end
 end
 
@@ -531,6 +584,8 @@ PC:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_LIST_UPDATE"
         or event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then
         QueueScan()
+    elseif event == "MAIL_INBOX_UPDATE" then
+        PC:ScanMail()
     elseif event == "MERCHANT_SHOW" then
         C_Timer.After(0.3, function() PC:ScanMerchant() end)
     elseif event == "GET_ITEM_INFO_RECEIVED" then
@@ -542,6 +597,6 @@ PC:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 for _, e in ipairs({ "ADDON_LOADED", "PLAYER_LOGIN", "TRADE_SKILL_SHOW", "TRADE_SKILL_LIST_UPDATE",
-    "TRADE_SKILL_DATA_SOURCE_CHANGED", "MERCHANT_SHOW", "GET_ITEM_INFO_RECEIVED" }) do
+    "TRADE_SKILL_DATA_SOURCE_CHANGED", "MERCHANT_SHOW", "GET_ITEM_INFO_RECEIVED", "MAIL_INBOX_UPDATE" }) do
     pcall(PC.RegisterEvent, PC, e)
 end
