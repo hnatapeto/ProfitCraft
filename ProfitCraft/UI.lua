@@ -5,12 +5,12 @@ local GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local GetIcon = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
 
 local ROW_H, NUM_LIMIT = 22, 200
-local f, scroll, content, statusText, modeBtns
+local f, scroll, content, statusText, modeBtns, checks
 local rows = {}
 
 local function CreateMain()
     f = CreateFrame("Frame", "ProfitCraftFrame", UIParent, "BasicFrameTemplateWithInset")
-    f:SetSize(680, 460)
+    f:SetSize(680, 484)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -28,14 +28,15 @@ local function CreateMain()
     modeBtns = {}
     local function MakeBtn(label, mode, x)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetSize(170, 22)
+        b:SetSize(168, 22)
         b:SetPoint("TOPLEFT", x, -30)
         b:SetText(label)
         b:SetScript("OnClick", function() PC.db.mode = mode; ns.RefreshUI() end)
         modeBtns[mode] = b
     end
     MakeBtn("Craft -> predaj na AH", "ah", 12)
-    MakeBtn("AH -> craft -> vendor", "vendor", 186)
+    MakeBtn("AH -> craft -> vendor", "vendor", 184)
+    MakeBtn("Craft -> disenchant", "de", 356)
 
     local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     refresh:SetSize(90, 22)
@@ -43,10 +44,29 @@ local function CreateMain()
     refresh:SetText("Obnovit")
     refresh:SetScript("OnClick", function() ns.RefreshUI() end)
 
+    -- filtre: naucene / nenaucene recepty
+    checks = {}
+    local function MakeCheck(label, key, x)
+        local cb = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+        cb:SetSize(24, 24)
+        cb:SetPoint("TOPLEFT", x, -54)
+        local fs = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+        fs:SetText(label)
+        cb:SetHitRectInsets(0, -(fs:GetStringWidth() + 4), 0, 0)
+        cb:SetScript("OnClick", function(self)
+            PC.db[key] = self:GetChecked() and true or false
+            ns.RefreshUI()
+        end)
+        checks[key] = cb
+    end
+    MakeCheck("Naucene recepty", "learned", 12)
+    MakeCheck("|cffff8000Nenaucene|r recepty", "unlearned", 160)
+
     -- hlavicka
     local hdr = CreateFrame("Frame", nil, f)
-    hdr:SetPoint("TOPLEFT", 14, -58)
-    hdr:SetPoint("TOPRIGHT", -34, -58)
+    hdr:SetPoint("TOPLEFT", 14, -82)
+    hdr:SetPoint("TOPRIGHT", -34, -82)
     hdr:SetHeight(16)
     local function H(text, x, w, j)
         local fs = hdr:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -59,7 +79,7 @@ local function CreateMain()
     H("Zisk", 544, 86, "RIGHT")
 
     scroll = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 12, -76)
+    scroll:SetPoint("TOPLEFT", 12, -100)
     scroll:SetPoint("BOTTOMRIGHT", -32, 32)
     content = CreateFrame("Frame", nil, scroll)
     content:SetSize(630, 1)
@@ -77,6 +97,7 @@ local function RowTooltip(row)
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:SetItemByID(e.out)
     GameTooltip:AddLine(" ")
+    if not e.learned then GameTooltip:AddLine("Recept este nemas naucany", 1, 0.5, 0) end
     GameTooltip:AddLine("ProfitCraft - suroviny:", 0.2, 1, 0.6)
     local function AddParts(parts, indent, mult)
         for _, p in ipairs(parts) do
@@ -96,6 +117,17 @@ local function RowTooltip(row)
     GameTooltip:AddDoubleLine("Cena vendor (kus)", ns.Money(e.venUnit), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Zisk AH (po " .. PC.db.ahCut .. "% poplatku)", ns.Money(e.profitAH), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Zisk vendor", ns.Money(e.profitVendor), 1, 0.82, 0, 1, 1, 1)
+    if e.deOuts then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Disenchant (ocakavane z 1 ks):", 0.2, 1, 0.6)
+        for _, o in ipairs(e.deOuts) do
+            local name = GetItemInfo(o.id) or ("item:" .. o.id)
+            GameTooltip:AddDoubleLine(("%.0f%%  %.1fx %s"):format(o.chance * 100, o.avg, name),
+                ns.Money(o.unit), 1, 1, 1, 1, 1, 1)
+        end
+        GameTooltip:AddDoubleLine("Hodnota DE (kus, po poplatku)", ns.Money(e.deUnit), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Zisk DE", ns.Money(e.profitDE), 1, 0.82, 0, 1, 1, 1)
+    end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Klik: plan - co kupit a co vyrobit", 0.6, 0.6, 0.6)
     GameTooltip:AddLine("Shift+klik: vlozit link do chatu", 0.6, 0.6, 0.6)
@@ -155,6 +187,7 @@ local function BuildPlanText(e, count)
 
     add(("|cffffd100%dx craft:|r %s"):format(count, Name(e.out)))
     add(("|cff888888%s, vyrobis cca %s ks|r"):format(e.prof, math.floor(e.qty * count + 0.5)))
+    if not e.learned then add("|cffff8000Najprv sa nauc tento recept (trener / recept z AH alebo dropu).|r") end
     if not useStock then add("|cff888888Zasoby sa nerataju (vypnute).|r") end
     add(" ")
 
@@ -213,9 +246,16 @@ local function BuildPlanText(e, count)
     add(" ")
 
     -- predaj
-    add("|cff33ff993) PREDAT|r")
+    add(mode == "de" and "|cff33ff993) ROZLOZIT a predat suroviny|r" or "|cff33ff993) PREDAT|r")
     local n = math.floor(e.qty * count + 0.5)
-    if mode == "vendor" then
+    if mode == "de" then
+        add(("   %dx %s rozlozit (disenchant), ocakavane:"):format(n, Name(e.out)))
+        local mult = e.qty * count
+        for _, o in ipairs(e.deOuts or {}) do
+            add(("     ~%.1fx %s  po %s"):format(o.qty * mult, Name(o.id), ns.Money(o.unit)))
+        end
+        add(("   suroviny na AH po %d%% poplatku: %s"):format(PC.db.ahCut, ns.Money(e.deUnit and e.deUnit * mult)))
+    elseif mode == "vendor" then
         add(("   %dx %s vendorovi po %s = %s"):format(n, Name(e.out), ns.Money(e.venUnit),
             ns.Money(e.venUnit and e.venUnit * e.qty * count)))
     else
@@ -251,7 +291,7 @@ end
 
 local function CreatePlan()
     plan = CreateFrame("Frame", "ProfitCraftPlan", f, "BasicFrameTemplateWithInset")
-    plan:SetSize(400, 460)
+    plan:SetSize(400, 484)
     plan:SetPoint("TOPLEFT", f, "TOPRIGHT", 2, 0)
     plan.title = plan:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     plan.title:SetPoint("TOP", 0, -5)
@@ -555,6 +595,7 @@ function ns.RefreshUI()
     for m, b in pairs(modeBtns) do
         if m == mode then b:LockHighlight() else b:UnlockHighlight() end
     end
+    for key, cb in pairs(checks) do cb:SetChecked(PC.db[key] and true or false) end
 
     local list, incomplete = PC:Top(mode, NUM_LIMIT)
     for i, e in ipairs(list) do
@@ -564,9 +605,11 @@ function ns.RefreshUI()
         local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
         r.name:SetText((color and color.hex or "|cffffffff") .. (name or e.name or "?") .. "|r")
         r.icon:SetTexture(GetIcon(e.out))
-        r.prof:SetText(e.chain and (e.prof .. " |cff66ccff+retazec|r") or e.prof)
+        local profTxt = e.chain and (e.prof .. " |cff66ccff+retazec|r") or e.prof
+        if not e.learned then profTxt = "|cffff8000[nenauceny]|r " .. profTxt end
+        r.prof:SetText(profTxt)
         r.cost:SetText(ns.Money(e.cost))
-        local unit = mode == "vendor" and e.venUnit or e.ahUnit
+        local unit = (mode == "vendor" and e.venUnit) or (mode == "de" and e.deUnit) or (mode == "ah" and e.ahUnit) or nil
         r.sell:SetText(ns.Money(unit and unit * e.qty))
         r.profit:SetText(ns.Money(e.profit))
         r:Show()

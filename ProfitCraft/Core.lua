@@ -19,9 +19,11 @@ local defaults = {
     tsmSell   = "first(dbminbuyout, dbmarket)",  -- TSM cena pri predaji vyrobku
     ahCut     = 5,           -- % poplatok AH z predaja
     minProfit = 0,           -- v medi
-    mode      = "ah",        -- ah | vendor
+    mode      = "ah",        -- ah | vendor | de
     chains    = true,        -- pouzivat vlastne crafty ako suroviny
     useAlts   = false,       -- zaratat aj recepty altov na tom istom realme
+    learned   = true,        -- zobrazit naucene recepty
+    unlearned = true,        -- zobrazit aj recepty, ktore este nemas naucene
     chars     = {},
     vendor    = {},          -- itemID -> nakupna cena u vendora (za kus)
     castTime  = {},          -- recipeID -> dlzka craftu v sekundach (zbiera Timer)
@@ -142,6 +144,102 @@ function PC:VendorSell(id)
 end
 
 ---------------------------------------------------------------------------
+-- Disenchant: ocakavane suroviny podla "Requires Level" vyrobku
+---------------------------------------------------------------------------
+local NEXUS = 20725
+-- max = horna hranica required levelu; dust/ess = { itemID, priemerny pocet }
+local DE_TABLE = {
+    { max = 10, dust = { 10940, 1.5 }, ess = { 10938, 1.5 } },                 -- Strange / Lesser Magic
+    { max = 15, dust = { 10940, 2.5 }, ess = { 10939, 1.5 }, shard = 10978 },  -- Greater Magic / Small Glimmering
+    { max = 20, dust = { 10940, 5 },   ess = { 10998, 1.5 }, shard = 10978 },  -- Lesser Astral
+    { max = 25, dust = { 11083, 1.5 }, ess = { 11082, 1.5 }, shard = 11084 },  -- Soul / Greater Astral / Large Glimmering
+    { max = 30, dust = { 11083, 3.5 }, ess = { 11134, 1.5 }, shard = 11138 },  -- Lesser Mystic / Small Glowing
+    { max = 35, dust = { 11137, 1.5 }, ess = { 11135, 1.5 }, shard = 11139 },  -- Vision / Greater Mystic / Large Glowing
+    { max = 40, dust = { 11137, 3.5 }, ess = { 11174, 1.5 }, shard = 11177 },  -- Lesser Nether / Small Radiant
+    { max = 45, dust = { 11176, 1.5 }, ess = { 11175, 1.5 }, shard = 11178 },  -- Dream / Greater Nether / Large Radiant
+    { max = 50, dust = { 11176, 3.5 }, ess = { 16202, 1.5 }, shard = 14343 },  -- Lesser Eternal / Small Brilliant
+    { max = 55, dust = { 16204, 1.5 }, ess = { 16203, 1.5 }, shard = 14344, nexus = true }, -- Illusion / Greater Eternal / Large Brilliant
+    { max = 60, dust = { 16204, 3.5 }, ess = { 16203, 2 },   shard = 14344, nexus = true },
+}
+local NO_DE_SLOT = { [""] = true, INVTYPE_BODY = true, INVTYPE_TABARD = true, INVTYPE_NON_EQUIP_IGNORE = true }
+
+function PC:DEMaterialIDs()
+    local t = { NEXUS }
+    for _, r in ipairs(DE_TABLE) do
+        t[#t + 1] = r.dust[1]; t[#t + 1] = r.ess[1]
+        if r.shard then t[#t + 1] = r.shard end
+    end
+    return t
+end
+
+-- zoznam { id, chance, avg, qty = chance*avg } ; false = neda sa rozlozit ; nil = item este nie je nacitany
+function PC:DisenchantOutcomes(id)
+    local name, _, quality, _, reqLevel, _, _, _, equipLoc, _, _, classID = GetItemInfo(id)
+    if not name then
+        RequestItem(id)
+        self.pending = true
+        return nil
+    end
+    if not quality or quality < 2 or quality > 4 then return false end
+    if classID ~= 2 and classID ~= 4 then return false end
+    if NO_DE_SLOT[equipLoc or ""] then return false end
+
+    local lvl = math.max(reqLevel or 0, 1)
+    local row = DE_TABLE[#DE_TABLE]
+    for _, r in ipairs(DE_TABLE) do
+        if lvl <= r.max then row = r; break end
+    end
+
+    local out = {}
+    local function add(itemID, chance, avg)
+        if itemID and chance > 0 then
+            out[#out + 1] = { id = itemID, chance = chance, avg = avg, qty = chance * avg }
+        end
+    end
+    if quality == 2 then
+        -- zelene: zbroj ~75% dust / 20% essence / 5% shard, zbrane naopak
+        local weapon = classID == 2
+        local pShard = row.shard and 0.05 or 0
+        local pMinor = 0.20
+        local pMajor = 1 - pShard - pMinor
+        add(row.dust[1], weapon and pMinor or pMajor, row.dust[2])
+        add(row.ess[1], weapon and pMajor or pMinor, row.ess[2])
+        add(row.shard, pShard, 1)
+    elseif quality == 3 then
+        -- modre: shard (lvl 51+ obcas Nexus Crystal)
+        local shard = row.shard or 10978
+        if row.nexus then
+            add(shard, 0.995, 1)
+            add(NEXUS, 0.005, 1)
+        else
+            add(shard, 1, 1)
+        end
+    else
+        -- fialove: lvl 51+ 1-2 Nexus Crystal, nizsie 2-4 shardy
+        if row.nexus then add(NEXUS, 1, 1.5) else add(row.shard or 10978, 1, 3) end
+    end
+    return out
+end
+
+-- hodnota rozlozenia 1 kusu (po poplatku AH za predaj surovin)
+-- vrati value|nil, outs|false|nil
+function PC:DisenchantValue(id)
+    local outs = self:DisenchantOutcomes(id)
+    if not outs then return nil, outs end
+    local cut = 1 - (self.db.ahCut or 5) / 100
+    local total, have = 0, false
+    for _, o in ipairs(outs) do
+        o.unit = self:AHPrice(o.id, "sell")
+        if o.unit then
+            total = total + o.unit * o.qty * cut
+            have = true
+        end
+    end
+    if not have then return nil, outs end
+    return math.floor(total), outs
+end
+
+---------------------------------------------------------------------------
 -- Vlastne zasoby: tasky + banka + posta (cez TSM, inak vlastny sken posty)
 ---------------------------------------------------------------------------
 local GetCount = (C_Item and C_Item.GetItemCount) or GetItemCount
@@ -171,7 +269,7 @@ function PC:CostOf(id)
 end
 
 function PC:ScanMail()
-    if not GetInboxNumItems then return end
+    if not self.char or not GetInboxNumItems then return end
     local mail = {}
     local maxAtt = ATTACHMENTS_MAX_RECEIVE or 16
     for i = 1, GetInboxNumItems() do
@@ -188,7 +286,7 @@ end
 ---------------------------------------------------------------------------
 function PC:ScanProfession()
     local T = C_TradeSkillUI
-    if not T or not T.GetAllRecipeIDs then return end
+    if not self.char or not T or not T.GetAllRecipeIDs then return end
     if T.IsTradeSkillReady and not T.IsTradeSkillReady() then return end
     if T.IsTradeSkillLinked and T.IsTradeSkillLinked() then return end
     if T.IsTradeSkillGuild and T.IsTradeSkillGuild() then return end
@@ -198,10 +296,10 @@ function PC:ScanProfession()
     local prof = info and info.professionName
     if not prof or prof == "" then return end
 
-    local recipes, n = {}, 0
+    local recipes, n, nLearned = {}, 0, 0
     for _, rid in ipairs(T.GetAllRecipeIDs() or {}) do
         local ri = T.GetRecipeInfo(rid)
-        if ri and ri.learned then
+        if ri then
             local s = T.GetRecipeSchematic(rid, false)
             if s and s.outputItemID then
                 local reagents = {}
@@ -213,12 +311,14 @@ function PC:ScanProfession()
                 end
                 recipes[rid] = {
                     name = ri.name,
+                    learned = ri.learned and true or false,
                     out = s.outputItemID,
                     qmin = s.quantityMin or 1,
                     qmax = s.quantityMax or s.quantityMin or 1,
                     reagents = reagents,
                 }
                 n = n + 1
+                if ri.learned then nLearned = nLearned + 1 end
             end
         end
     end
@@ -228,7 +328,7 @@ function PC:ScanProfession()
         local oldN = 0
         if old then for _ in pairs(old) do oldN = oldN + 1 end end
         self.char.profs[prof] = recipes
-        if oldN ~= n then Print(("%s: ulozenych %d receptov."):format(prof, n)) end
+        if oldN ~= n then Print(("%s: ulozenych %d receptov (naucenych %d)."):format(prof, n, nLearned)) end
         self:PreloadItems()
         if ns.RefreshUI then ns.RefreshUI() end
     end
@@ -260,11 +360,49 @@ function PC:ScanMerchant()
 end
 
 ---------------------------------------------------------------------------
+-- Identita postavy
+-- Na Forever (regionalne unikatne mena) vracia UnitName("player") meno a PRIEZVISKO
+-- zvlast, napr. "Rip", "Maan" - kluc musi obsahovat oboje.
+---------------------------------------------------------------------------
+local CHAR_VER = 2
+
+local function RegionalNames()
+    return RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled()
+end
+
+local function RealmGroup()
+    if RegionalNames() and C_GameRules and C_GameRules.IsGameRuleActive and Enum and Enum.GameRule then
+        local G = Enum.GameRule
+        local function on(rule)
+            if not rule then return false end
+            local ok, v = pcall(C_GameRules.IsGameRuleActive, rule)
+            return ok and v
+        end
+        local pvp, rp = on(G.PvPRuleset), on(G.RPRuleset)
+        if pvp and rp then return "RPPvP" end
+        if pvp then return "PvP" end
+        if rp then return "RP" end
+        if on(G.HardcoreRuleset) then return "HC" end
+        return "PvE"
+    end
+    return GetRealmName()
+end
+
+local function CharIdentity()
+    local name, second = UnitName("player")
+    if RegionalNames() and second and second ~= "" then
+        name = name .. " " .. second
+    end
+    local group = RealmGroup()
+    return name .. "-" .. group, group
+end
+
+---------------------------------------------------------------------------
 -- Index receptov: outputItemID -> { {rid, r, prof}, ... }
 ---------------------------------------------------------------------------
 function PC:BuildIndex()
     local idx, seen = {}, {}
-    local realm = "-" .. GetRealmName()
+    local realm = "-" .. self.realmGroup
     local function add(key, isMe)
         local c = self.db.chars[key]
         for prof, recipes in pairs(c and c.profs or {}) do
@@ -288,6 +426,9 @@ function PC:BuildIndex()
 end
 
 function PC:PreloadItems()
+    for _, id in ipairs(self:DEMaterialIDs()) do
+        if not GetItemInfo(id) then RequestItem(id) end
+    end
     for _, c in pairs(self.db.chars) do
         for _, recipes in pairs(c.profs or {}) do
             for _, r in pairs(recipes) do
@@ -346,7 +487,9 @@ function PC:BestCost(id, visiting)
         else
             visiting[id] = true
             for _, rec in ipairs(index[id]) do
-                local c, parts = self:RecipeCost(rec, visiting)
+                -- medzikrok retazca moze byt len recept, ktory uz vies
+                local c, parts
+                if rec.r.learned ~= false then c, parts = self:RecipeCost(rec, visiting) end
                 if c then
                     local q = AvgQty(rec.r)
                     local unit = c / q
@@ -387,9 +530,13 @@ function PC:Evaluate()
                 local e = {
                     prof = rec.prof, rid = rec.rid, name = r.name, out = outId, qty = qty,
                     cost = cost, parts = parts, ahUnit = ahUnit, venUnit = venUnit, chain = chain,
+                    learned = r.learned ~= false,
                 }
                 if ahUnit then e.profitAH = math.floor(ahUnit * qty * cut - cost) end
                 if venUnit and venUnit > 0 then e.profitVendor = math.floor(venUnit * qty - cost) end
+                local deUnit, deOuts = self:DisenchantValue(outId)
+                e.deUnit, e.deOuts = deUnit, deOuts or nil
+                if deUnit then e.profitDE = math.floor(deUnit * qty - cost) end
                 results[#results + 1] = e
             end
         end
@@ -400,11 +547,11 @@ end
 
 function PC:Top(mode, limit)
     mode = mode or self.db.mode
-    local key = mode == "vendor" and "profitVendor" or "profitAH"
+    local key = (mode == "vendor" and "profitVendor") or (mode == "de" and "profitDE") or "profitAH"
     local all, incomplete = self:Evaluate()
     local list = {}
     for _, e in ipairs(all) do
-        if e[key] and e[key] >= (self.db.minProfit or 0) then
+        if e[key] and e[key] >= (self.db.minProfit or 0) and (e.learned and self.db.learned or not e.learned and self.db.unlearned) then
             e.profit = e[key]
             list[#list + 1] = e
         end
@@ -442,7 +589,8 @@ function PC:Why(query)
                 found = found + 1
                 if found > 5 then break end
                 local r = rec.r
-                Print(("%s  |cff888888[%s]|r"):format(ItemLabel(outId, r.name), rec.prof))
+                Print(("%s  |cff888888[%s]|r%s"):format(ItemLabel(outId, r.name), rec.prof,
+                    r.learned == false and " |cffff8000[nenauceny]|r" or ""))
                 local cost, parts, missing = self:RecipeCost(rec, { [outId] = true })
                 PrintParts(parts, "   ", 1)
                 if missing then
@@ -453,14 +601,21 @@ function PC:Why(query)
                 end
                 local qty = AvgQty(r)
                 local ahUnit, venUnit = self:AHPrice(outId, "sell"), self:VendorSell(outId)
-                print(("   Naklad: %s | AH: %s/ks | vendor: %s/ks | ks z craftu: %.1f"):format(
-                    ns.Money(cost), ns.Money(ahUnit), ns.Money(venUnit), qty))
+                local deUnit, deOuts = self:DisenchantValue(outId)
+                print(("   Naklad: %s | AH: %s/ks | vendor: %s/ks | DE: %s/ks | ks z craftu: %.1f"):format(
+                    ns.Money(cost), ns.Money(ahUnit), ns.Money(venUnit),
+                    deOuts == false and "|cff888888neda sa rozlozit|r" or ns.Money(deUnit), qty))
+                for _, o in ipairs(deOuts or {}) do
+                    print(("      DE: %.0f%% x %.1f %s  %s/ks"):format(o.chance * 100, o.avg, ItemLabel(o.id), ns.Money(o.unit)))
+                end
                 if cost then
                     local cut = 1 - (self.db.ahCut or 5) / 100
                     local pa = ahUnit and math.floor(ahUnit * qty * cut - cost)
                     local pv = venUnit and venUnit > 0 and math.floor(venUnit * qty - cost)
-                    print(("   Zisk AH: %s | Zisk vendor: %s | min. zisk filter: %s"):format(
-                        ns.Money(pa), pv and ns.Money(pv) or "|cff888888nepredajne|r", ns.Money(self.db.minProfit)))
+                    local pd = deUnit and math.floor(deUnit * qty - cost)
+                    print(("   Zisk AH: %s | Zisk vendor: %s | Zisk DE: %s | min. zisk filter: %s"):format(
+                        ns.Money(pa), pv and ns.Money(pv) or "|cff888888nepredajne|r",
+                        pd and ns.Money(pd) or "|cff888888-|r", ns.Money(self.db.minProfit)))
                     if not venUnit then print("   |cffffff00Item este nie je nacitany, skus o chvilu znova.|r") end
                 end
             end
@@ -476,16 +631,19 @@ end
 ---------------------------------------------------------------------------
 -- Slash prikazy
 ---------------------------------------------------------------------------
+ns.MODE_LABEL = { ah = "craft -> AH", vendor = "AH -> craft -> vendor", de = "craft -> disenchant" }
+
 local function PrintTop(mode, n)
     local list = PC:Top(mode, n)
     if #list == 0 then
         Print("Nic vyhodne. (Otvor okno profesie, aby sa ulozili recepty, a skontroluj, ci mas ceny z AH addonu.)")
         return
     end
-    Print(("Top %d - %s:"):format(#list, mode == "vendor" and "AH -> craft -> vendor" or "craft -> AH"))
+    Print(("Top %d - %s:"):format(#list, ns.MODE_LABEL[mode] or ns.MODE_LABEL.ah))
     for i, e in ipairs(list) do
         print(("%2d. %s%s  zisk %s  (naklad %s)"):format(i, ItemLabel(e.out, e.name),
-            e.chain and " |cff66ccff[retazec]|r" or "", ns.Money(e.profit), ns.Money(e.cost)))
+            (e.chain and " |cff66ccff[retazec]|r" or "") .. (e.learned and "" or " |cffff8000[nenauceny]|r"),
+            ns.Money(e.profit), ns.Money(e.cost)))
     end
 end
 
@@ -514,14 +672,22 @@ SlashCmdList.PROFITCRAFT = function(msg)
         if ns.ToggleMinimap then ns.ToggleMinimap(arg) end
     elseif cmd == "timer" or cmd == "ct" then
         if ns.TimerCmd then ns.TimerCmd(arg) end
+    elseif cmd == "de" or cmd == "disenchant" then
+        PrintTop("de", tonumber(arg) or 10)
     elseif cmd == "why" or cmd == "preco" then
         PC:Why(arg)
-    elseif cmd == "mode" and (arg == "ah" or arg == "vendor") then
+    elseif cmd == "mode" and (arg == "ah" or arg == "vendor" or arg == "de") then
         db.mode = arg; Print("Rezim: " .. arg); R()
     elseif cmd == "chains" or cmd == "retazce" then
         db.chains = OnOff(arg, db.chains); Print("Retazce: " .. (db.chains and "zapnute" or "vypnute")); R()
     elseif cmd == "alts" then
         db.useAlts = OnOff(arg, db.useAlts); Print("Recepty altov: " .. (db.useAlts and "zapnute" or "vypnute")); R()
+    elseif cmd == "learned" or cmd == "naucene" then
+        db.learned = OnOff(arg, db.learned)
+        Print("Naucene recepty: " .. (db.learned and "zobrazene" or "skryte")); R()
+    elseif cmd == "unlearned" or cmd == "nenaucene" then
+        db.unlearned = OnOff(arg, db.unlearned)
+        Print("Nenaucene recepty: " .. (db.unlearned and "zobrazene" or "skryte")); R()
     elseif cmd == "source" and (arg == "auto" or sources[arg]) then
         db.source = arg; Print("Zdroj cien: " .. arg); R()
     elseif cmd == "tsmbuy" and arg ~= "" then
@@ -536,17 +702,20 @@ SlashCmdList.PROFITCRAFT = function(msg)
         PC.char.profs = {}; Print("Recepty tejto postavy vymazane. Otvor znova okna profesii.")
     elseif cmd == "status" then
         Print("Zdroje cien: " .. PC:ActiveSourceNames() .. " | zvoleny: " .. db.source)
-        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s"):format(
-            db.tsmBuy, db.tsmSell, db.chains and "on" or "off", db.useAlts and "on" or "off"))
+        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s | naucene: %s | nenaucene: %s"):format(
+            db.tsmBuy, db.tsmSell, db.chains and "on" or "off", db.useAlts and "on" or "off",
+            db.learned and "on" or "off", db.unlearned and "on" or "off"))
         for prof, rec in pairs(PC.char.profs) do
-            local n = 0; for _ in pairs(rec) do n = n + 1 end
-            print(("  %s: %d receptov"):format(prof, n))
+            local n, l = 0, 0
+            for _, r in pairs(rec) do n = n + 1; if r.learned ~= false then l = l + 1 end end
+            print(("  %s: %d receptov (naucenych %d)"):format(prof, n, l))
         end
     else
         Print("Prikazy:")
-        print("  /pc - okno | /pc top [n] | /pc vendor [n]")
+        print("  /pc - okno | /pc top [n] | /pc vendor [n] | /pc de [n]")
         print("  /pc why <nazov itemu alebo shift-klik link> - preco craft nie je v zozname")
-        print("  /pc mode ah|vendor | /pc chains on|off | /pc alts on|off")
+        print("  /pc mode ah|vendor|de | /pc chains on|off | /pc alts on|off ")
+        print("  /pc learned on|off | /pc unlearned on|off - naucene / nenaucene recepty")
         print("  /pc source auto|tsm|auctioneer|auctionator")
         print("  /pc tsmbuy <price string> | /pc tsmsell <price string>")
         print("  /pc cut <percent> | /pc min <goldy> | /pc status | /pc reset")
@@ -576,10 +745,30 @@ PC:SetScript("OnEvent", function(self, event, arg1)
             end
         end
         self.db = ProfitCraftDB
-        self.charKey = UnitName("player") .. "-" .. GetRealmName()
-        self.db.chars[self.charKey] = self.db.chars[self.charKey] or { profs = {} }
-        self.char = self.db.chars[self.charKey]
+        -- stare zaznamy (v0.10.0 a starsie) boli ulozene len pod krstnym menom,
+        -- takze postavy s rovnakym menom (napr. "Rip Maan", "Rip Streid") sa miesali
+        local purged = 0
+        for key, c in pairs(self.db.chars) do
+            if type(c) ~= "table" or c.ver ~= CHAR_VER then
+                self.db.chars[key] = nil
+                purged = purged + 1
+            end
+        end
+        if purged > 0 then
+            C_Timer.After(5, function()
+                Print("Recepty postav boli premazane (postavy s rovnakym krstnym menom sa miesali). " ..
+                    "Na kazdej postave raz otvor okna jej profesii.")
+            end)
+        end
     elseif event == "PLAYER_LOGIN" then
+        local key, group = CharIdentity()
+        self.charKey, self.realmGroup = key, group
+        local c = self.db.chars[key]
+        if not c then
+            c = { ver = CHAR_VER, profs = {} }
+            self.db.chars[key] = c
+        end
+        self.char = c
         C_Timer.After(3, function() PC:PreloadItems() end)
     elseif event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_LIST_UPDATE"
         or event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then
