@@ -118,6 +118,7 @@ local function LookupProfit(rid)
         if e.rid == rid then
             local p
             if PC.db.mode == "vendor" then p = e.profitVendor or e.profitAH
+            elseif PC.db.mode == "de" then p = e.profitDE or e.profitAH
             else p = e.profitAH or e.profitVendor end
             return p
         end

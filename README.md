@@ -7,9 +7,10 @@ Addon pre **World of Warcraft: Forever**, ktorý hľadá výhodné crafty podľa
 - Berie ceny z **TSM**, **Auctioneer** alebo **Auctionator** (čo máš nainštalované).
 - Načíta naučené recepty z tvojich profesií (stačí raz otvoriť okno profesie).
 - Zapamätá si nákupné ceny u vendorov (thready, vialy, flux…) pri otvorení obchodníka.
-- Dva režimy:
+- Tri režimy:
   - **Craft → predaj na AH** (zisk po 5 % poplatku AH)
   - **AH → craft → vendor** (kúpiš suroviny v aukcii, výrobok predáš vendorovi)
+  - **Craft → disenchant** (výrobok rozložíš a dust/essence/shardy predáš na AH po poplatku)
 - **Reťazce:** každú surovinu berie najlacnejšie z AH, od vendora alebo z vlastného craftu,
   aj cez viac krokov (napr. bar → diel → výrobok).
 - **Plán:** klik na riadok ukáže, čo kúpiť, čo vyrobiť a v akom poradí (x1 / x5 / x10 / x20),
@@ -31,9 +32,9 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 | Príkaz | Popis |
 |---|---|
 | `/pc` | otvorí okno |
-| `/pc top [n]` / `/pc vendor [n]` | top crafty do chatu |
+| `/pc top [n]` / `/pc vendor [n]` / `/pc de [n]` | top crafty do chatu |
 | `/pc why <item>` | prečo craft nie je v zozname (aj Shift+klik link) |
-| `/pc mode ah\|vendor` | režim |
+| `/pc mode ah\|vendor\|de` | režim |
 | `/pc chains on\|off` | reťazce cez vlastné crafty |
 | `/pc alts on\|off` | zarátať recepty altov na rovnakom realme |
 | `/pc source auto\|tsm\|auctioneer\|auctionator` | zdroj cien |
@@ -50,3 +51,7 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 - Enchanty bez výsledného itemu sa preskakujú.
 - Ak máš ešte samostatný addon CraftTimer, vypni ho alebo zmaž, časovač je už súčasťou ProfitCraftu.
 - Známy problém (0.4.0): dĺžka craftu, a teda čas a zisk za hodinu v časovači, môže byť vo Forever nepresná.
+- Disenchant počíta s **očakávanou hodnotou** podľa *Requires Level* výrobku:
+  zelené zbroje ~75 % dust / 20 % essence / 5 % shard, zelené zbrane 20 % dust / 75 % essence / 5 % shard,
+  modré = shard (lvl 51+ 0,5 % Nexus Crystal), fialové lvl 51+ = 1–2 Nexus Crystal.
+  Biele itemy, košele a tabardy sa rozložiť nedajú. Ak surovina nemá cenu na AH, ráta sa ako 0.

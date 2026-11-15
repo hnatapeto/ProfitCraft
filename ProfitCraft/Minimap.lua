@@ -27,21 +27,23 @@ local function OnDragUpdate()
     UpdatePosition()
 end
 
+local MODE_NAME = { ah = "Craft -> predaj na AH", vendor = "AH -> craft -> vendor", de = "Craft -> disenchant" }
+local NEXT_MODE = { ah = "vendor", vendor = "de", de = "ah" }
+
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
     GameTooltip:AddLine("ProfitCraft")
-    local mode = PC.db.mode == "vendor" and "AH -> craft -> vendor" or "Craft -> predaj na AH"
-    GameTooltip:AddLine("Rezim: " .. mode, 1, 1, 1)
+    GameTooltip:AddLine("Rezim: " .. (MODE_NAME[PC.db.mode] or MODE_NAME.ah), 1, 1, 1)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Lavy klik: otvorit / zavriet", 0.7, 0.7, 0.7)
-    GameTooltip:AddLine("Pravy klik: prepnut rezim AH / vendor", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Pravy klik: prepnut rezim AH / vendor / disenchant", 0.7, 0.7, 0.7)
     GameTooltip:AddLine("Tahanie: posunut ikonu", 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end
 
 local function ToggleMode()
-    PC.db.mode = PC.db.mode == "vendor" and "ah" or "vendor"
-    ns.Print("Rezim: " .. (PC.db.mode == "vendor" and "AH -> craft -> vendor" or "Craft -> predaj na AH"))
+    PC.db.mode = NEXT_MODE[PC.db.mode] or "ah"
+    ns.Print("Rezim: " .. MODE_NAME[PC.db.mode])
     if ns.RefreshUI then ns.RefreshUI() end
 end
 

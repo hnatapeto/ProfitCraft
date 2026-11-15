@@ -28,14 +28,15 @@ local function CreateMain()
     modeBtns = {}
     local function MakeBtn(label, mode, x)
         local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        b:SetSize(170, 22)
+        b:SetSize(168, 22)
         b:SetPoint("TOPLEFT", x, -30)
         b:SetText(label)
         b:SetScript("OnClick", function() PC.db.mode = mode; ns.RefreshUI() end)
         modeBtns[mode] = b
     end
     MakeBtn("Craft -> predaj na AH", "ah", 12)
-    MakeBtn("AH -> craft -> vendor", "vendor", 186)
+    MakeBtn("AH -> craft -> vendor", "vendor", 184)
+    MakeBtn("Craft -> disenchant", "de", 356)
 
     local refresh = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     refresh:SetSize(90, 22)
@@ -96,6 +97,17 @@ local function RowTooltip(row)
     GameTooltip:AddDoubleLine("Cena vendor (kus)", ns.Money(e.venUnit), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Zisk AH (po " .. PC.db.ahCut .. "% poplatku)", ns.Money(e.profitAH), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:AddDoubleLine("Zisk vendor", ns.Money(e.profitVendor), 1, 0.82, 0, 1, 1, 1)
+    if e.deOuts then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Disenchant (ocakavane z 1 ks):", 0.2, 1, 0.6)
+        for _, o in ipairs(e.deOuts) do
+            local name = GetItemInfo(o.id) or ("item:" .. o.id)
+            GameTooltip:AddDoubleLine(("%.0f%%  %.1fx %s"):format(o.chance * 100, o.avg, name),
+                ns.Money(o.unit), 1, 1, 1, 1, 1, 1)
+        end
+        GameTooltip:AddDoubleLine("Hodnota DE (kus, po poplatku)", ns.Money(e.deUnit), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Zisk DE", ns.Money(e.profitDE), 1, 0.82, 0, 1, 1, 1)
+    end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Klik: plan - co kupit a co vyrobit", 0.6, 0.6, 0.6)
     GameTooltip:AddLine("Shift+klik: vlozit link do chatu", 0.6, 0.6, 0.6)
@@ -213,9 +225,16 @@ local function BuildPlanText(e, count)
     add(" ")
 
     -- predaj
-    add("|cff33ff993) PREDAT|r")
+    add(mode == "de" and "|cff33ff993) ROZLOZIT a predat suroviny|r" or "|cff33ff993) PREDAT|r")
     local n = math.floor(e.qty * count + 0.5)
-    if mode == "vendor" then
+    if mode == "de" then
+        add(("   %dx %s rozlozit (disenchant), ocakavane:"):format(n, Name(e.out)))
+        local mult = e.qty * count
+        for _, o in ipairs(e.deOuts or {}) do
+            add(("     ~%.1fx %s  po %s"):format(o.qty * mult, Name(o.id), ns.Money(o.unit)))
+        end
+        add(("   suroviny na AH po %d%% poplatku: %s"):format(PC.db.ahCut, ns.Money(e.deUnit and e.deUnit * mult)))
+    elseif mode == "vendor" then
         add(("   %dx %s vendorovi po %s = %s"):format(n, Name(e.out), ns.Money(e.venUnit),
             ns.Money(e.venUnit and e.venUnit * e.qty * count)))
     else
@@ -566,7 +585,7 @@ function ns.RefreshUI()
         r.icon:SetTexture(GetIcon(e.out))
         r.prof:SetText(e.chain and (e.prof .. " |cff66ccff+retazec|r") or e.prof)
         r.cost:SetText(ns.Money(e.cost))
-        local unit = mode == "vendor" and e.venUnit or e.ahUnit
+        local unit = (mode == "vendor" and e.venUnit) or (mode == "de" and e.deUnit) or (mode == "ah" and e.ahUnit) or nil
         r.sell:SetText(ns.Money(unit and unit * e.qty))
         r.profit:SetText(ns.Money(e.profit))
         r:Show()
