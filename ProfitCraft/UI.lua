@@ -78,6 +78,7 @@ local function RowTooltip(row)
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:SetItemByID(e.out)
     GameTooltip:AddLine(" ")
+    if not e.learned then GameTooltip:AddLine("Recept este nemas naucany", 1, 0.5, 0) end
     GameTooltip:AddLine("ProfitCraft - suroviny:", 0.2, 1, 0.6)
     local function AddParts(parts, indent, mult)
         for _, p in ipairs(parts) do
@@ -167,6 +168,7 @@ local function BuildPlanText(e, count)
 
     add(("|cffffd100%dx craft:|r %s"):format(count, Name(e.out)))
     add(("|cff888888%s, vyrobis cca %s ks|r"):format(e.prof, math.floor(e.qty * count + 0.5)))
+    if not e.learned then add("|cffff8000Najprv sa nauc tento recept (trener / recept z AH alebo dropu).|r") end
     if not useStock then add("|cff888888Zasoby sa nerataju (vypnute).|r") end
     add(" ")
 
@@ -583,7 +585,9 @@ function ns.RefreshUI()
         local color = quality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality]
         r.name:SetText((color and color.hex or "|cffffffff") .. (name or e.name or "?") .. "|r")
         r.icon:SetTexture(GetIcon(e.out))
-        r.prof:SetText(e.chain and (e.prof .. " |cff66ccff+retazec|r") or e.prof)
+        local profTxt = e.chain and (e.prof .. " |cff66ccff+retazec|r") or e.prof
+        if not e.learned then profTxt = "|cffff8000[nenauceny]|r " .. profTxt end
+        r.prof:SetText(profTxt)
         r.cost:SetText(ns.Money(e.cost))
         local unit = (mode == "vendor" and e.venUnit) or (mode == "de" and e.deUnit) or (mode == "ah" and e.ahUnit) or nil
         r.sell:SetText(ns.Money(unit and unit * e.qty))

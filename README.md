@@ -5,7 +5,8 @@ Addon pre **World of Warcraft: Forever**, ktorý hľadá výhodné crafty podľa
 ## Čo robí
 
 - Berie ceny z **TSM**, **Auctioneer** alebo **Auctionator** (čo máš nainštalované).
-- Načíta naučené recepty z tvojich profesií (stačí raz otvoriť okno profesie).
+- Načíta všetky recepty tvojich profesií – naučené aj nenaučené (stačí raz otvoriť okno profesie).
+  Nenaučené sú označené **[nenaučený]**; ako medzikrok v reťazci sa použijú len naučené.
 - Zapamätá si nákupné ceny u vendorov (thready, vialy, flux…) pri otvorení obchodníka.
 - Tri režimy:
   - **Craft → predaj na AH** (zisk po 5 % poplatku AH)
@@ -37,6 +38,7 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 | `/pc mode ah\|vendor\|de` | režim |
 | `/pc chains on\|off` | reťazce cez vlastné crafty |
 | `/pc alts on\|off` | zarátať recepty altov na rovnakom realme |
+| `/pc unlearned on\|off` | zobraziť aj nenaučené recepty (default zapnuté) |
 | `/pc source auto\|tsm\|auctioneer\|auctionator` | zdroj cien |
 | `/pc tsmbuy <price>` / `/pc tsmsell <price>` | TSM price string (default `first(dbminbuyout, dbmarket)`) |
 | `/pc cut <percent>` | poplatok AH |

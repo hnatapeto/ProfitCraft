@@ -22,6 +22,7 @@ local defaults = {
     mode      = "ah",        -- ah | vendor | de
     chains    = true,        -- pouzivat vlastne crafty ako suroviny
     useAlts   = false,       -- zaratat aj recepty altov na tom istom realme
+    unlearned = true,        -- zobrazit aj recepty, ktore este nemas naucene
     chars     = {},
     vendor    = {},          -- itemID -> nakupna cena u vendora (za kus)
     castTime  = {},          -- recipeID -> dlzka craftu v sekundach (zbiera Timer)
@@ -294,10 +295,10 @@ function PC:ScanProfession()
     local prof = info and info.professionName
     if not prof or prof == "" then return end
 
-    local recipes, n = {}, 0
+    local recipes, n, nLearned = {}, 0, 0
     for _, rid in ipairs(T.GetAllRecipeIDs() or {}) do
         local ri = T.GetRecipeInfo(rid)
-        if ri and ri.learned then
+        if ri then
             local s = T.GetRecipeSchematic(rid, false)
             if s and s.outputItemID then
                 local reagents = {}
@@ -309,12 +310,14 @@ function PC:ScanProfession()
                 end
                 recipes[rid] = {
                     name = ri.name,
+                    learned = ri.learned and true or false,
                     out = s.outputItemID,
                     qmin = s.quantityMin or 1,
                     qmax = s.quantityMax or s.quantityMin or 1,
                     reagents = reagents,
                 }
                 n = n + 1
+                if ri.learned then nLearned = nLearned + 1 end
             end
         end
     end
@@ -324,7 +327,7 @@ function PC:ScanProfession()
         local oldN = 0
         if old then for _ in pairs(old) do oldN = oldN + 1 end end
         self.char.profs[prof] = recipes
-        if oldN ~= n then Print(("%s: ulozenych %d receptov."):format(prof, n)) end
+        if oldN ~= n then Print(("%s: ulozenych %d receptov (naucenych %d)."):format(prof, n, nLearned)) end
         self:PreloadItems()
         if ns.RefreshUI then ns.RefreshUI() end
     end
@@ -445,7 +448,9 @@ function PC:BestCost(id, visiting)
         else
             visiting[id] = true
             for _, rec in ipairs(index[id]) do
-                local c, parts = self:RecipeCost(rec, visiting)
+                -- medzikrok retazca moze byt len recept, ktory uz vies
+                local c, parts
+                if rec.r.learned ~= false then c, parts = self:RecipeCost(rec, visiting) end
                 if c then
                     local q = AvgQty(rec.r)
                     local unit = c / q
@@ -486,6 +491,7 @@ function PC:Evaluate()
                 local e = {
                     prof = rec.prof, rid = rec.rid, name = r.name, out = outId, qty = qty,
                     cost = cost, parts = parts, ahUnit = ahUnit, venUnit = venUnit, chain = chain,
+                    learned = r.learned ~= false,
                 }
                 if ahUnit then e.profitAH = math.floor(ahUnit * qty * cut - cost) end
                 if venUnit and venUnit > 0 then e.profitVendor = math.floor(venUnit * qty - cost) end
@@ -506,7 +512,7 @@ function PC:Top(mode, limit)
     local all, incomplete = self:Evaluate()
     local list = {}
     for _, e in ipairs(all) do
-        if e[key] and e[key] >= (self.db.minProfit or 0) then
+        if e[key] and e[key] >= (self.db.minProfit or 0) and (e.learned or self.db.unlearned) then
             e.profit = e[key]
             list[#list + 1] = e
         end
@@ -544,7 +550,8 @@ function PC:Why(query)
                 found = found + 1
                 if found > 5 then break end
                 local r = rec.r
-                Print(("%s  |cff888888[%s]|r"):format(ItemLabel(outId, r.name), rec.prof))
+                Print(("%s  |cff888888[%s]|r%s"):format(ItemLabel(outId, r.name), rec.prof,
+                    r.learned == false and " |cffff8000[nenauceny]|r" or ""))
                 local cost, parts, missing = self:RecipeCost(rec, { [outId] = true })
                 PrintParts(parts, "   ", 1)
                 if missing then
@@ -596,7 +603,8 @@ local function PrintTop(mode, n)
     Print(("Top %d - %s:"):format(#list, ns.MODE_LABEL[mode] or ns.MODE_LABEL.ah))
     for i, e in ipairs(list) do
         print(("%2d. %s%s  zisk %s  (naklad %s)"):format(i, ItemLabel(e.out, e.name),
-            e.chain and " |cff66ccff[retazec]|r" or "", ns.Money(e.profit), ns.Money(e.cost)))
+            (e.chain and " |cff66ccff[retazec]|r" or "") .. (e.learned and "" or " |cffff8000[nenauceny]|r"),
+            ns.Money(e.profit), ns.Money(e.cost)))
     end
 end
 
@@ -635,6 +643,9 @@ SlashCmdList.PROFITCRAFT = function(msg)
         db.chains = OnOff(arg, db.chains); Print("Retazce: " .. (db.chains and "zapnute" or "vypnute")); R()
     elseif cmd == "alts" then
         db.useAlts = OnOff(arg, db.useAlts); Print("Recepty altov: " .. (db.useAlts and "zapnute" or "vypnute")); R()
+    elseif cmd == "unlearned" or cmd == "nenaucene" then
+        db.unlearned = OnOff(arg, db.unlearned)
+        Print("Nenaucene recepty: " .. (db.unlearned and "zobrazene" or "skryte")); R()
     elseif cmd == "source" and (arg == "auto" or sources[arg]) then
         db.source = arg; Print("Zdroj cien: " .. arg); R()
     elseif cmd == "tsmbuy" and arg ~= "" then
@@ -649,17 +660,19 @@ SlashCmdList.PROFITCRAFT = function(msg)
         PC.char.profs = {}; Print("Recepty tejto postavy vymazane. Otvor znova okna profesii.")
     elseif cmd == "status" then
         Print("Zdroje cien: " .. PC:ActiveSourceNames() .. " | zvoleny: " .. db.source)
-        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s"):format(
-            db.tsmBuy, db.tsmSell, db.chains and "on" or "off", db.useAlts and "on" or "off"))
+        print(("  TSM nakup: %s | TSM predaj: %s | retazce: %s | alty: %s | nenaucene: %s"):format(
+            db.tsmBuy, db.tsmSell, db.chains and "on" or "off", db.useAlts and "on" or "off",
+            db.unlearned and "on" or "off"))
         for prof, rec in pairs(PC.char.profs) do
-            local n = 0; for _ in pairs(rec) do n = n + 1 end
-            print(("  %s: %d receptov"):format(prof, n))
+            local n, l = 0, 0
+            for _, r in pairs(rec) do n = n + 1; if r.learned ~= false then l = l + 1 end end
+            print(("  %s: %d receptov (naucenych %d)"):format(prof, n, l))
         end
     else
         Print("Prikazy:")
         print("  /pc - okno | /pc top [n] | /pc vendor [n] | /pc de [n]")
         print("  /pc why <nazov itemu alebo shift-klik link> - preco craft nie je v zozname")
-        print("  /pc mode ah|vendor|de | /pc chains on|off | /pc alts on|off")
+        print("  /pc mode ah|vendor|de | /pc chains on|off | /pc alts on|off | /pc unlearned on|off")
         print("  /pc source auto|tsm|auctioneer|auctionator")
         print("  /pc tsmbuy <price string> | /pc tsmsell <price string>")
         print("  /pc cut <percent> | /pc min <goldy> | /pc status | /pc reset")
