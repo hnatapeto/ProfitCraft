@@ -269,7 +269,7 @@ function PC:CostOf(id)
 end
 
 function PC:ScanMail()
-    if not GetInboxNumItems then return end
+    if not self.char or not GetInboxNumItems then return end
     local mail = {}
     local maxAtt = ATTACHMENTS_MAX_RECEIVE or 16
     for i = 1, GetInboxNumItems() do
@@ -286,7 +286,7 @@ end
 ---------------------------------------------------------------------------
 function PC:ScanProfession()
     local T = C_TradeSkillUI
-    if not T or not T.GetAllRecipeIDs then return end
+    if not self.char or not T or not T.GetAllRecipeIDs then return end
     if T.IsTradeSkillReady and not T.IsTradeSkillReady() then return end
     if T.IsTradeSkillLinked and T.IsTradeSkillLinked() then return end
     if T.IsTradeSkillGuild and T.IsTradeSkillGuild() then return end
@@ -360,11 +360,49 @@ function PC:ScanMerchant()
 end
 
 ---------------------------------------------------------------------------
+-- Identita postavy
+-- Na Forever (regionalne unikatne mena) vracia UnitName("player") meno a PRIEZVISKO
+-- zvlast, napr. "Rip", "Maan" - kluc musi obsahovat oboje.
+---------------------------------------------------------------------------
+local CHAR_VER = 2
+
+local function RegionalNames()
+    return RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled()
+end
+
+local function RealmGroup()
+    if RegionalNames() and C_GameRules and C_GameRules.IsGameRuleActive and Enum and Enum.GameRule then
+        local G = Enum.GameRule
+        local function on(rule)
+            if not rule then return false end
+            local ok, v = pcall(C_GameRules.IsGameRuleActive, rule)
+            return ok and v
+        end
+        local pvp, rp = on(G.PvPRuleset), on(G.RPRuleset)
+        if pvp and rp then return "RPPvP" end
+        if pvp then return "PvP" end
+        if rp then return "RP" end
+        if on(G.HardcoreRuleset) then return "HC" end
+        return "PvE"
+    end
+    return GetRealmName()
+end
+
+local function CharIdentity()
+    local name, second = UnitName("player")
+    if RegionalNames() and second and second ~= "" then
+        name = name .. " " .. second
+    end
+    local group = RealmGroup()
+    return name .. "-" .. group, group
+end
+
+---------------------------------------------------------------------------
 -- Index receptov: outputItemID -> { {rid, r, prof}, ... }
 ---------------------------------------------------------------------------
 function PC:BuildIndex()
     local idx, seen = {}, {}
-    local realm = "-" .. GetRealmName()
+    local realm = "-" .. self.realmGroup
     local function add(key, isMe)
         local c = self.db.chars[key]
         for prof, recipes in pairs(c and c.profs or {}) do
@@ -707,10 +745,30 @@ PC:SetScript("OnEvent", function(self, event, arg1)
             end
         end
         self.db = ProfitCraftDB
-        self.charKey = UnitName("player") .. "-" .. GetRealmName()
-        self.db.chars[self.charKey] = self.db.chars[self.charKey] or { profs = {} }
-        self.char = self.db.chars[self.charKey]
+        -- stare zaznamy (v0.10.0 a starsie) boli ulozene len pod krstnym menom,
+        -- takze postavy s rovnakym menom (napr. "Rip Maan", "Rip Streid") sa miesali
+        local purged = 0
+        for key, c in pairs(self.db.chars) do
+            if type(c) ~= "table" or c.ver ~= CHAR_VER then
+                self.db.chars[key] = nil
+                purged = purged + 1
+            end
+        end
+        if purged > 0 then
+            C_Timer.After(5, function()
+                Print("Recepty postav boli premazane (postavy s rovnakym krstnym menom sa miesali). " ..
+                    "Na kazdej postave raz otvor okna jej profesii.")
+            end)
+        end
     elseif event == "PLAYER_LOGIN" then
+        local key, group = CharIdentity()
+        self.charKey, self.realmGroup = key, group
+        local c = self.db.chars[key]
+        if not c then
+            c = { ver = CHAR_VER, profs = {} }
+            self.db.chars[key] = c
+        end
+        self.char = c
         C_Timer.After(3, function() PC:PreloadItems() end)
     elseif event == "TRADE_SKILL_SHOW" or event == "TRADE_SKILL_LIST_UPDATE"
         or event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then

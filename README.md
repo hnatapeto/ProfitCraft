@@ -49,6 +49,7 @@ V hre `/reload`, potom otvor okno každej svojej profesie a napíš `/pc`.
 ## Poznámky
 
 - Ceny sú také čerstvé, aký je posledný sken tvojho AH addonu.
+- Recepty sa ukladajú pre každú postavu zvlášť (celé meno vrátane priezviska na Forever).
 - Neráta s hĺbkou trhu (či sa daný počet kusov reálne predá).
 - Enchanty bez výsledného itemu sa preskakujú.
 - Ak máš ešte samostatný addon CraftTimer, vypni ho alebo zmaž, časovač je už súčasťou ProfitCraftu.
